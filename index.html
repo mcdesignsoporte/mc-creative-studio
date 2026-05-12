@@ -411,7 +411,6 @@ button,.wa,.tabs,.no-print,#clientes,#historial,#inventario,#dashboard{display:n
 <script>
 let current={};let lastMaterialRowCount=0;
 const QUOTES_KEY='mc_erp_quotes_v1',CLIENTS_KEY='mc_erp_clients_v1',INV_KEY='mc_erp_inventory_v1',EXP_KEY='mc_erp_expenses_v1',FIXED_KEY='mc_erp_fixed_expenses_v1',FIXED_HISTORY_KEY='mc_erp_fixed_expenses_history_v1';
-const GOOGLE_SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbyJlX_7nogiJg6rHOHpuApoGIactGrVW3onsWSpPu2COBacyqOl7uACrCPtA2VQuiVW/exec';
 function mxn(v){return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(v||0)}
 function val(id){return Number(document.getElementById(id)?.value||0)}
 function text(id){return document.getElementById(id)?.value||''}
@@ -721,12 +720,63 @@ Contacto: 444 794 7990`;
   const wa = document.getElementById('waLink');
   if(wa) wa.href = 'https://wa.me/?text=' + encodeURIComponent(quote);
 }
-function saveClient(){const name=text('clientName'),phone=text('clientPhone');if(!name&&!phone){alert('Agrega nombre o teléfono');return}let c={id:phone||name.toLowerCase().replaceAll(' ','-'),name,phone,email:text('clientEmail'),shipping:text('shippingRequired'),address:text('shippingAddress')};let l=getData(CLIENTS_KEY),i=l.findIndex(x=>x.id===c.id);if(i>=0)l[i]=c;else l.push(c);setData(CLIENTS_KEY,l);fillClients();renderClients();alert('Cliente guardado')}
+async function saveClient(){
+  const name = text('clientName');
+  const phone = text('clientPhone');
+
+  if(!name && !phone){
+    alert('Agrega nombre o teléfono');
+    return;
+  }
+
+  let c = {
+    id: phone || name.toLowerCase().replaceAll(' ','-'),
+    name,
+    phone,
+    email: text('clientEmail'),
+    shipping: text('shippingRequired'),
+    address: text('shippingAddress')
+  };
+
+  let l = getData(CLIENTS_KEY);
+  let i = l.findIndex(x => x.id === c.id);
+
+  if(i >= 0) l[i] = c;
+  else l.push(c);
+
+  setData(CLIENTS_KEY, l);
+  await syncClientToGoogleSheets(c);
+
+  fillClients();
+  renderClients();
+  alert('Cliente guardado y enviado a Google Sheets.');
+}
 function fillClients(){const s=document.getElementById('clientSelect'),sel=s.value,l=getData(CLIENTS_KEY);s.innerHTML='<option value="">Cliente nuevo</option>'+l.map(c=>`<option value="${c.id}">${c.name} ${c.phone?'- '+c.phone:''}</option>`).join('');s.value=sel}
 function loadClientFromSelect(){let c=getData(CLIENTS_KEY).find(x=>x.id===text('clientSelect'));if(!c)return;document.getElementById('clientName').value=c.name||'';document.getElementById('clientPhone').value=c.phone||'';document.getElementById('clientEmail').value=c.email||'';document.getElementById('shippingRequired').value=c.shipping||'No';document.getElementById('shippingAddress').value=c.address||'';calc()}
 
+async 
+const GOOGLE_SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbyJlX_7nogiJg6rHOHpuApoGIactGrVW3onsWSpPu2COBacyqOl7uACrCPtA2VQuiVW/exec';
+
+async function syncToGoogleSheets(tipo, payload){
+  try{
+    await fetch(GOOGLE_SHEETS_API_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify({
+        tipo: tipo,
+        ...payload
+      })
+    });
+    return true;
+  }catch(error){
+    console.error('Error al sincronizar con Google Sheets:', error);
+    return false;
+  }
+}
+
 async function syncQuoteToGoogleSheets(quote){
-  const payload = {
+  return syncToGoogleSheets('Cotizaciones', {
     folio: quote.folio,
     cliente: quote.clientName,
     telefono: quote.clientPhone,
@@ -749,23 +799,57 @@ async function syncQuoteToGoogleSheets(quote){
     utilidad: quote.profitPercent,
     detalleCostos: quote.costDetail,
     accesorios: quote.accessoriesDetail
-  };
-
-  try{
-    await fetch(GOOGLE_SHEETS_API_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify(payload)
-    });
-    return true;
-  }catch(error){
-    console.error('Error Google Sheets:', error);
-    return false;
-  }
+  });
 }
 
-async function saveQuote(){
+async function syncClientToGoogleSheets(client){
+  return syncToGoogleSheets('Clientes', {
+    id: client.id,
+    cliente: client.name || client.clientName || '',
+    telefono: client.phone || client.clientPhone || '',
+    correo: client.email || client.clientEmail || '',
+    envio: client.shipping || client.shippingRequired || '',
+    direccion: client.address || client.shippingAddress || ''
+  });
+}
+
+async function syncInventoryToGoogleSheets(item){
+  return syncToGoogleSheets('Inventario', {
+    id: item.id,
+    material: item.name || '',
+    categoria: item.cat || '',
+    color: item.color || '',
+    pesoCantidad: item.weight || item.qty || '',
+    restante: item.remaining || '',
+    costo: item.cost || '',
+    costoGramo: item.costPerGram || ''
+  });
+}
+
+async function syncExpenseToGoogleSheets(expense){
+  return syncToGoogleSheets('Gastos', {
+    id: expense.id,
+    fecha: expense.date || '',
+    gasto: expense.name || '',
+    categoria: expense.category || '',
+    monto: expense.amount || ''
+  });
+}
+
+async function syncFixedExpenseToGoogleSheets(fixed){
+  return syncToGoogleSheets('GastosFijos', {
+    mes: fixed.month || '',
+    luz: fixed.light || 0,
+    internet: fixed.internet || 0,
+    renta: fixed.rent || 0,
+    mantenimiento: fixed.maintenance || 0,
+    software: fixed.software || 0,
+    herramientas: fixed.tools || 0,
+    total: fixed.total || 0
+  });
+}
+
+function saveQuote(){
   calc();
   let l = getData(QUOTES_KEY);
   let i = l.findIndex(q => q.folio === current.folio);
@@ -848,7 +932,28 @@ function calcInventoryCostPerGram(){
 }
 
 
-function saveInventory(){let l=getData(INV_KEY);l.push({id:Date.now(),name:text('invName'),cat:text('invCategory'),color:text('invColor'),weight:val('invQty'),remaining:val('invRemaining'),cost:val('invCost'),costPerGram:(val('invQty')>0?val('invCost')/val('invQty'):0)});setData(INV_KEY,l);renderInventory();fillFilamentSelectors()}
+async function saveInventory(){
+  let item = {
+    id: Date.now(),
+    name: text('invName'),
+    cat: text('invCategory'),
+    color: text('invColor'),
+    weight: val('invQty'),
+    remaining: val('invRemaining'),
+    cost: val('invCost'),
+    costPerGram: (val('invQty') > 0 ? val('invCost') / val('invQty') : 0)
+  };
+
+  let l = getData(INV_KEY);
+  l.push(item);
+  setData(INV_KEY, l);
+
+  await syncInventoryToGoogleSheets(item);
+
+  renderInventory();
+  fillFilamentSelectors();
+  alert('Inventario guardado y enviado a Google Sheets.');
+}
 function renderInventory(){const b=document.getElementById('inventoryBody'),l=getData(INV_KEY);b.innerHTML=l.length?l.map(i=>`<tr><td>${i.name}</td><td>${i.cat}</td><td>${i.color || '-'}</td><td>${i.weight || '-'} ${i.cat==='Filamento'?'g':''}</td><td>${i.remaining || '-'} ${i.cat==='Filamento'?'g':''}</td><td>${mxn(i.cost)}</td><td>${i.cat==='Filamento'?mxn(i.costPerGram)+' / g':'-'}</td><td><button class="danger" onclick="delInv(${i.id})">Eliminar</button></td></tr>`).join(''):'<tr><td colspan="8">Sin inventario</td></tr>'}
 function delInv(id){setData(INV_KEY,getData(INV_KEY).filter(i=>i.id!==id));renderInventory()}
 function copyQuote(){navigator.clipboard?.writeText(document.getElementById('quoteText').textContent);alert('Resumen copiado')}
@@ -894,16 +999,25 @@ function loadFixedExpensesByMonth(){
   saveFixedExpenses();renderReports();
 }
 function updateFixedExpenseUI(){const e=document.getElementById('fixedTotal');if(e)e.textContent=mxn(getFixedTotal())}
-function saveFixedExpensesToHistory(){
-  const d=getFixedFormData();
-  const list=getFixedHistory();
-  const i=list.findIndex(x=>x.month===d.month);
-  if(i>=0)list[i]=d;else list.push(d);
-  list.sort((a,b)=>String(b.month).localeCompare(String(a.month)));
+async function saveFixedExpensesToHistory(){
+  const d = getFixedFormData();
+  const list = getFixedHistory();
+  const i = list.findIndex(x => x.month === d.month);
+
+  if(i >= 0) list[i] = d;
+  else list.push(d);
+
+  list.sort((a,b) => String(b.month).localeCompare(String(a.month)));
   setFixedHistory(list);
-  localStorage.setItem(FIXED_KEY,JSON.stringify(d));
-  renderFixedHistory();renderReports();
-  alert('Gastos fijos del mes guardados en histórico.');
+
+  localStorage.setItem(FIXED_KEY, JSON.stringify(d));
+
+  await syncFixedExpenseToGoogleSheets(d);
+
+  renderFixedHistory();
+  renderReports();
+
+  alert('Gastos fijos del mes guardados y enviados a Google Sheets.');
 }
 function renderFixedHistory(){
   const body=document.getElementById('fixedHistoryBody');if(!body)return;
@@ -913,13 +1027,34 @@ function renderFixedHistory(){
 function deleteFixedMonth(month){if(!confirm('¿Eliminar gastos fijos de '+month+'?'))return;setFixedHistory(getFixedHistory().filter(x=>x.month!==month));renderFixedHistory();renderReports()}
 function exportFixedHistoryCSV(){const list=getFixedHistory();downloadCSV('historico_gastos_fijos_mc.csv',['Mes','Luz','Internet','Renta','Mantenimiento','Software','Herramientas','Total'],list.map(x=>[x.month,x.light,x.internet,x.rent,x.maintenance,x.software,x.tools,x.total]))}
 
-function saveExpense(){
-  const name=text('expenseName').trim();
-  if(!name){alert('Agrega el nombre del gasto.');return}
-  const e={id:Date.now(),date:text('expenseDate')||todayISO(),name,category:text('expenseCategory'),amount:val('expenseAmount')};
-  const l=getData(EXP_KEY);l.push(e);setData(EXP_KEY,l);
-  document.getElementById('expenseName').value='';document.getElementById('expenseAmount').value=0;
-  renderExpenses();renderReports()
+async function saveExpense(){
+  const name = text('expenseName').trim();
+
+  if(!name){
+    alert('Agrega el nombre del gasto.');
+    return;
+  }
+
+  const e = {
+    id: Date.now(),
+    date: text('expenseDate') || todayISO(),
+    name,
+    category: text('expenseCategory'),
+    amount: val('expenseAmount')
+  };
+
+  const l = getData(EXP_KEY);
+  l.push(e);
+  setData(EXP_KEY, l);
+
+  await syncExpenseToGoogleSheets(e);
+
+  document.getElementById('expenseName').value = '';
+  document.getElementById('expenseAmount').value = 0;
+
+  renderExpenses();
+  renderReports();
+  alert('Gasto guardado y enviado a Google Sheets.');
 }
 function renderExpenses(){
   const b=document.getElementById('expensesBody');if(!b)return;
