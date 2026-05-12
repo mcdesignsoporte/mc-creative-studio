@@ -411,6 +411,7 @@ button,.wa,.tabs,.no-print,#clientes,#historial,#inventario,#dashboard{display:n
 <script>
 let current={};let lastMaterialRowCount=0;
 const QUOTES_KEY='mc_erp_quotes_v1',CLIENTS_KEY='mc_erp_clients_v1',INV_KEY='mc_erp_inventory_v1',EXP_KEY='mc_erp_expenses_v1',FIXED_KEY='mc_erp_fixed_expenses_v1',FIXED_HISTORY_KEY='mc_erp_fixed_expenses_history_v1';
+const GOOGLE_SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbyJlX_7nogiJg6rHOHpuApoGIactGrVW3onsWSpPu2COBacyqOl7uACrCPtA2VQuiVW/exec';
 function mxn(v){return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(v||0)}
 function val(id){return Number(document.getElementById(id)?.value||0)}
 function text(id){return document.getElementById(id)?.value||''}
@@ -723,7 +724,63 @@ Contacto: 444 794 7990`;
 function saveClient(){const name=text('clientName'),phone=text('clientPhone');if(!name&&!phone){alert('Agrega nombre o teléfono');return}let c={id:phone||name.toLowerCase().replaceAll(' ','-'),name,phone,email:text('clientEmail'),shipping:text('shippingRequired'),address:text('shippingAddress')};let l=getData(CLIENTS_KEY),i=l.findIndex(x=>x.id===c.id);if(i>=0)l[i]=c;else l.push(c);setData(CLIENTS_KEY,l);fillClients();renderClients();alert('Cliente guardado')}
 function fillClients(){const s=document.getElementById('clientSelect'),sel=s.value,l=getData(CLIENTS_KEY);s.innerHTML='<option value="">Cliente nuevo</option>'+l.map(c=>`<option value="${c.id}">${c.name} ${c.phone?'- '+c.phone:''}</option>`).join('');s.value=sel}
 function loadClientFromSelect(){let c=getData(CLIENTS_KEY).find(x=>x.id===text('clientSelect'));if(!c)return;document.getElementById('clientName').value=c.name||'';document.getElementById('clientPhone').value=c.phone||'';document.getElementById('clientEmail').value=c.email||'';document.getElementById('shippingRequired').value=c.shipping||'No';document.getElementById('shippingAddress').value=c.address||'';calc()}
-function saveQuote(){calc();let l=getData(QUOTES_KEY),i=l.findIndex(q=>q.folio===current.folio);if(i>=0)l[i]=current;else l.push(current);setData(QUOTES_KEY,l);current={};calc();renderAll();alert('Cotización guardada')}
+
+async function syncQuoteToGoogleSheets(quote){
+  const payload = {
+    folio: quote.folio,
+    cliente: quote.clientName,
+    telefono: quote.clientPhone,
+    producto: quote.itemName,
+    total: quote.total,
+    linea: quote.line,
+    correo: quote.clientEmail,
+    envio: quote.shippingRequired,
+    direccion: quote.shippingAddress,
+    fecha: quote.quoteDate,
+    vigencia: quote.validUntil,
+    entrega: quote.deliveryTime,
+    estado: quote.quoteStatus,
+    cantidad: quote.qty,
+    precioUnitario: quote.unitPrice,
+    subtotal: quote.subtotal,
+    descuento: quote.discount,
+    anticipo: quote.advance,
+    saldo: quote.balance,
+    utilidad: quote.profitPercent,
+    detalleCostos: quote.costDetail,
+    accesorios: quote.accessoriesDetail
+  };
+
+  try{
+    await fetch(GOOGLE_SHEETS_API_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify(payload)
+    });
+    return true;
+  }catch(error){
+    console.error('Error Google Sheets:', error);
+    return false;
+  }
+}
+
+async function saveQuote(){
+  calc();
+  let l = getData(QUOTES_KEY);
+  let i = l.findIndex(q => q.folio === current.folio);
+
+  if(i >= 0) l[i] = current;
+  else l.push(current);
+
+  setData(QUOTES_KEY, l);
+  await syncQuoteToGoogleSheets(current);
+
+  current = {};
+  calc();
+  renderAll();
+  alert('Cotización guardada y enviada a Google Sheets.');
+}
 function renderClients(){const b=document.getElementById('clientsBody'),l=getData(CLIENTS_KEY);b.innerHTML=l.length?l.map(c=>`<tr><td>${c.name}</td><td>${c.phone}</td><td>${c.email||'-'}</td><td>${c.address||'-'}</td><td><div class="actions"><button class="danger" onclick="deleteClient('${c.id}')">Eliminar</button></div></td></tr>`).join(''):'<tr><td colspan="5">Sin clientes</td></tr>'}
 function renderHistory(){const b=document.getElementById('historyBody'),l=getData(QUOTES_KEY).slice().reverse();b.innerHTML=l.length?l.map(q=>`<tr><td>${q.folio}</td><td>${q.quoteDate}</td><td>${q.line}</td><td>${q.clientName}</td><td>${q.itemName}</td><td><strong>${mxn(q.total)}</strong></td><td>${q.quoteStatus}</td><td><div class="actions"><button class="secondary" onclick="loadQuote('${q.folio}')">Cargar</button><button class="danger" onclick="deleteQuote('${q.folio}')">Eliminar</button></div></td></tr>`).join(''):'<tr><td colspan="8">Sin cotizaciones</td></tr>'}
 function loadQuote(f){let q=getData(QUOTES_KEY).find(x=>x.folio===f);if(!q)return;current=q;['clientName','clientPhone','clientEmail','shippingAddress','quoteDate','deliveryTime','quoteStatus','itemName','itemDescription','qty','advance','indirectCost'].forEach(id=>{if(document.getElementById(id))document.getElementById(id).value=q[id]??''});document.getElementById('businessLine').value=q.line;switchService();calc();showTab('cotizacion',document.querySelectorAll('.tabs button')[1])}
