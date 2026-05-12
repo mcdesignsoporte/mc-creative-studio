@@ -754,7 +754,6 @@ async function saveClient(){
 function fillClients(){const s=document.getElementById('clientSelect'),sel=s.value,l=getData(CLIENTS_KEY);s.innerHTML='<option value="">Cliente nuevo</option>'+l.map(c=>`<option value="${c.id}">${c.name} ${c.phone?'- '+c.phone:''}</option>`).join('');s.value=sel}
 function loadClientFromSelect(){let c=getData(CLIENTS_KEY).find(x=>x.id===text('clientSelect'));if(!c)return;document.getElementById('clientName').value=c.name||'';document.getElementById('clientPhone').value=c.phone||'';document.getElementById('clientEmail').value=c.email||'';document.getElementById('shippingRequired').value=c.shipping||'No';document.getElementById('shippingAddress').value=c.address||'';calc()}
 
-async 
 const GOOGLE_SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbyJlX_7nogiJg6rHOHpuApoGIactGrVW3onsWSpPu2COBacyqOl7uACrCPtA2VQuiVW/exec';
 
 async function syncToGoogleSheets(tipo, payload){
@@ -768,11 +767,27 @@ async function syncToGoogleSheets(tipo, payload){
         ...payload
       })
     });
+
+    console.log('Enviado a Google Sheets:', tipo, payload);
     return true;
   }catch(error){
     console.error('Error al sincronizar con Google Sheets:', error);
+    alert('Se guardó localmente, pero no se pudo enviar a Google Sheets. Revisa internet o Apps Script.');
     return false;
   }
+}
+
+
+async function testGoogleSheetsConnection(){
+  await syncToGoogleSheets('Clientes', {
+    id: 'TEST-' + Date.now(),
+    cliente: 'Prueba MC Creative Studio',
+    telefono: '4447947990',
+    correo: '',
+    envio: 'No',
+    direccion: 'Prueba de conexión'
+  });
+  alert('Prueba enviada. Revisa la pestaña Clientes en Google Sheets.');
 }
 
 async function syncQuoteToGoogleSheets(quote){
@@ -849,7 +864,7 @@ async function syncFixedExpenseToGoogleSheets(fixed){
   });
 }
 
-function saveQuote(){
+async function saveQuote(){
   calc();
   let l = getData(QUOTES_KEY);
   let i = l.findIndex(q => q.folio === current.folio);
@@ -865,6 +880,11 @@ function saveQuote(){
   renderAll();
   alert('Cotización guardada y enviada a Google Sheets.');
 }
+
+function showCloudStatus(message){
+  console.log(message);
+}
+
 function renderClients(){const b=document.getElementById('clientsBody'),l=getData(CLIENTS_KEY);b.innerHTML=l.length?l.map(c=>`<tr><td>${c.name}</td><td>${c.phone}</td><td>${c.email||'-'}</td><td>${c.address||'-'}</td><td><div class="actions"><button class="danger" onclick="deleteClient('${c.id}')">Eliminar</button></div></td></tr>`).join(''):'<tr><td colspan="5">Sin clientes</td></tr>'}
 function renderHistory(){const b=document.getElementById('historyBody'),l=getData(QUOTES_KEY).slice().reverse();b.innerHTML=l.length?l.map(q=>`<tr><td>${q.folio}</td><td>${q.quoteDate}</td><td>${q.line}</td><td>${q.clientName}</td><td>${q.itemName}</td><td><strong>${mxn(q.total)}</strong></td><td>${q.quoteStatus}</td><td><div class="actions"><button class="secondary" onclick="loadQuote('${q.folio}')">Cargar</button><button class="danger" onclick="deleteQuote('${q.folio}')">Eliminar</button></div></td></tr>`).join(''):'<tr><td colspan="8">Sin cotizaciones</td></tr>'}
 function loadQuote(f){let q=getData(QUOTES_KEY).find(x=>x.folio===f);if(!q)return;current=q;['clientName','clientPhone','clientEmail','shippingAddress','quoteDate','deliveryTime','quoteStatus','itemName','itemDescription','qty','advance','indirectCost'].forEach(id=>{if(document.getElementById(id))document.getElementById(id).value=q[id]??''});document.getElementById('businessLine').value=q.line;switchService();calc();showTab('cotizacion',document.querySelectorAll('.tabs button')[1])}
